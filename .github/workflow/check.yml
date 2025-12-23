@@ -1,0 +1,39 @@
+name: Content Check Bot
+
+on:
+  schedule:
+    # Запуск каждые 20 минут
+    - cron: '*/20 * * * *'
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Нужно для обновления state.json
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests feedparser beautifulsoup4 lxml
+
+      - name: Execute Bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
+
+      - name: Commit and Push state change
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          git commit -m "Update monitor state [skip ci]" || echo "No changes"
+          git push
