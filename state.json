@@ -1,5 +1,16 @@
 {
-  "initialized": false,
-  "youtube": {},
+  "initialized": true,
+  "youtube": {
+    "UCrkyt4PhwcdZeoW-aXwZ6Hw": {
+      "last_id": "bluu4lj7IsY",
+      "last_title": "Парень прочитал мой фанфик и решил, что это мои тайные фантазии ",
+      "updated_at": 1766579999
+    },
+    "UCouMPXslzyAihCHm4QRwAfA": {
+      "last_id": "_-oJcGRpvGM",
+      "last_title": "Мой муж ушёл во время ссоры и изменил",
+      "updated_at": 1766580000
+    }
+  },
   "boosty": {}
 }
