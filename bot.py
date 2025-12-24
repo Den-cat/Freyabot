@@ -1,67 +1,154 @@
 import os
 import json
+import time
 import requests
 import feedparser
-import re
 from bs4 import BeautifulSoup
 
-# Настройки мониторинга
-YT_CHANNELS = [{"id": "UCpGzQ8G8qL3Qf1-n3-Y_rGg", "name": "voicemail"}]
-BOOSTY_URL = "https://boosty.to/freyavoise"
-STATE_FILE = "state.json"
+# --- НАСТРОЙКИ ИЗ СЕКРЕТОВ GITHUB ---
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')  # Например, @freyasstory
+YT_API_KEY = os.getenv('YOUTUBE_API_KEY')
+# Если ID канала не задан в секретах, можно вставить его прямо сюда вместо None
+YT_CHANNEL_ID = os.getenv('YOUTUBE_CHANNEL_ID', 'UC_ваша_строка_id') 
+BOOSTY_URL = "https://boosty.to/freyasstory"
 
-def get_yt_latest(channel_id):
-    try:
-        url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-        feed = feedparser.parse(url)
-        if not feed.entries: return None
-        e = feed.entries[0]
-        return {"id": e.yt_videoid, "url": e.link, "title": e.title, "img": f"https://i.ytimg.com/vi/{e.yt_videoid}/hqdefault.jpg"}
-    except: return None
+STATE_FILE = 'state.json'
 
-def get_boosty_latest():
-    try:
-        h = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(BOOSTY_URL, headers=h, timeout=10)
-        s = BeautifulSoup(r.text, 'lxml')
-        sc = s.find("script", string=re.compile("initialState"))
-        m = re.search(r'window.__initialState__s*=s*({.*?});', sc.string)
-        d = json.loads(m.group(1))
-        p = d.get('posts', {}).get('list', [])[0]
-        return {"id": str(p['id']), "url": f"https://boosty.to/freyavoise/posts/{p['id']}", "title": p.get('title') or "Новое на Boosty", "img": p.get('teaser', [{}])[0].get('url', '') if p.get('teaser') else ""}
-    except: return None
+def log(message):
+    print(f"[LOG] {message}")
 
-def send_tg(text, photo):
-    t = os.environ.get("TELEGRAM_BOT_TOKEN")
-    c = os.environ.get("TELEGRAM_CHAT_ID")
-    if not t or not c: return
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {"initialized": False, "youtube": {}, "boosty": {}}
+
+def save_state(state):
+    with open(STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
+def send_telegram(text):
+    if not TOKEN or not CHAT_ID:
+        log("ОШИБКА: Токен или Chat ID не настроены!")
+        return False
+    
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
     try:
-        if photo: requests.post(f"https://api.telegram.org/bot{t}/sendPhoto", data={"chat_id": c, "caption": text, "photo": photo, "parse_mode": "HTML"})
-        else: requests.post(f"https://api.telegram.org/bot{t}/sendMessage", data={"chat_id": c, "text": text, "parse_mode": "HTML"})
-    except: pass
+        r = requests.post(url, json=payload)
+        if r.status_code == 200:
+            log("Сообщение успешно отправлено в Telegram!")
+            return True
+        else:
+            log(f"ОШИБКА TG: {r.text}")
+            return False
+    except Exception as e:
+        log(f"Ошибка при отправке: {e}")
+        return False
+
+def check_youtube(state):
+    log("Проверяю YouTube...")
+    video_id = None
+    video_title = None
+    video_url = None
+
+    # ПРИОРЕТЕТ 1: YouTube API (Быстрый режим)
+    if YT_API_KEY and YT_CHANNEL_ID:
+        log("Использую YouTube API v3 для мгновенной проверки.")
+        api_url = f"https://www.googleapis.com/youtube/v3/search?key={YT_API_KEY}&channelId={YT_CHANNEL_ID}&part=snippet,id&order=date&maxResults=1"
+        try:
+            res = requests.get(api_url).json()
+            item = res.get('items', [])[0]
+            video_id = item['id']['videoId']
+            video_title = item['snippet']['title']
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+        except Exception as e:
+            log(f"Ошибка API (возможно, лимиты): {e}. Пробую RSS...")
+
+    # ПРИОРЕТЕТ 2: RSS (Запасной / Медленный режим)
+    if not video_id:
+        log("Использую RSS ленту.")
+        rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={YT_CHANNEL_ID}"
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            entry = feed.entries[0]
+            video_id = entry.yt_videoid
+            video_title = entry.title
+            video_url = entry.link
+
+    if not video_id:
+        log("Видео на YouTube не найдены.")
+        return state
+
+    # Проверка на новизну
+    last_id = state['youtube'].get('last_id')
+    if last_id != video_id:
+        log(f"НАЙДЕНО НОВОЕ ВИДЕО: {video_title}")
+        if state.get('initialized'):
+            msg = f"<b>Новое видео на YouTube!</b>\n\n{video_title}\n\n<a href='{video_url}'>Смотреть прямо сейчас</a>"
+            send_telegram(msg)
+        state['youtube']['last_id'] = video_id
+        state['youtube']['last_title'] = video_title
+    else:
+        log("Новых видео на YouTube нет.")
+    
+    return state
+
+def check_boosty(state):
+    log("Проверяю Boosty...")
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(BOOSTY_URL, headers=headers)
+        soup = BeautifulSoup(r.text, 'lxml')
+        
+        # Поиск последнего поста (упрощенный поиск по селекторам Boosty)
+        # Примечание: Boosty часто меняет классы, это базовый пример
+        post = soup.find('div', class_=lambda x: x and 'Post_root' in x)
+        if not post:
+            log("Не удалось найти посты на Boosty (возможно, изменился дизайн сайта).")
+            return state
+
+        # Генерируем ID поста на основе текста или ссылки, если нет явного
+        post_link = BOOSTY_URL
+        post_title = "Новый эксклюзивный пост!"
+        
+        # Пытаемся найти уникальный идентификатор
+        post_id = str(hash(post.text[:100])) 
+
+        last_id = state['boosty'].get('last_id')
+        if last_id != post_id:
+            log("НАЙДЕН НОВЫЙ ПОСТ НА BOOSTY!")
+            if state.get('initialized'):
+                msg = f"<b>Новый пост на Boosty!</b>\n\n{post_title}\n\n<a href='{post_link}'>Перейти к посту</a>"
+                send_telegram(msg)
+            state['boosty']['last_id'] = post_id
+        else:
+            log("Новых постов на Boosty нет.")
+    except Exception as e:
+        log(f"Ошибка при проверке Boosty: {e}")
+    
+    return state
 
 def main():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f: state = json.load(f)
-    else: state = {"initialized": False, "youtube": {}, "boosty": None}
+    log("Запуск проверки контента...")
+    state = load_state()
     
-    save = False
-    for ch in YT_CHANNELS:
-        l = get_yt_latest(ch['id'])
-        if l and state.get("youtube", {}).get(ch['id']) != l['id']:
-            if state.get("initialized"): send_tg(f"<b>{l['title']}</b>\n\nYouTube Update!\n{l['url']}", l['img'])
-            state.setdefault("youtube", {})[ch['id']] = l['id']
-            save = True
+    # Проверяем ресурсы
+    state = check_youtube(state)
+    state = check_boosty(state)
     
-    b = get_boosty_latest()
-    if b and state.get("boosty") != b['id']:
-        if state.get("initialized"): send_tg(f"<b>{b['title']}</b>\n\nBoosty Exclusive!\n{b['url']}", b['img'])
-        state["boosty"] = b['id']
-        save = True
+    # Если это был первый запуск, помечаем систему как инициализированную
+    if not state.get('initialized'):
+        log("Первая инициализация завершена. Теперь я буду присылать только новые посты.")
+        state['initialized'] = True
     
-    if save or not state.get("initialized"):
-        state["initialized"] = True
-        with open(STATE_FILE, 'w') as f: json.dump(state, f, indent=2)
+    save_state(state)
+    log("Проверка завершена успешно.")
 
 if __name__ == "__main__":
     main()
