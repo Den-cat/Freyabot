@@ -93,7 +93,8 @@ def check_single_youtube_channel(state, channel_id, api_key):
             if state.get('initialized') and chan_state.get('last_id'):
                 header = "НОВОЕ ВИДЕО ТРЭШ ИСТОРИИ УЖЕ НА ЮТУБ"
                 caption = f"{header}\n\n<a href='{video_url}'>{video_title}</a>"
-                photo_url = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+                # Изменено с maxresdefault.jpg на sddefault.jpg для стабильности
+                photo_url = f"https://img.youtube.com/vi/{video_id}/sddefault.jpg"
                 send_telegram_notification(caption, photo_url)
             state['youtube'][channel_id] = {"last_id": video_id, "title": video_title}
     return state
