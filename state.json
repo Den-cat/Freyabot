@@ -1,14 +1,6 @@
 {
-  "initialized": true,
-  "youtube": {
-    "UCrkyt4PhwcdZeoW-aXwZ6Hw": {
-      "last_id": "hqHhzR4F-dI",
-      "title": "Отец отдал билеты в Дисней незнакомцам, вместо того чтобы отдать его моему сыну, а потом преследовал"
-    },
-    "UCouMPXslzyAihCHm4QRwAfA": {
-      "last_id": "FNsz8qIAC-4",
-      "title": "Я сволочь за то, что заблокировала бывшего после быстрого интима в парке?"
-    }
-  },
-  "boosty": {}
+  "initialized": false,
+  "youtube": {},
+  "boosty": {},
+  "last_success_window": null
 }
