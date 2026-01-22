@@ -19,6 +19,7 @@ def log(message):
 def get_current_window_id():
     """Определяет ID текущего временного окна (UTC+2)"""
     now_utc = datetime.utcnow()
+    # Хельсинки/Киев/Рига (UTC+2)
     now_local = now_utc + timedelta(hours=2)
     hour = now_local.hour
     date_str = now_local.strftime('%Y-%m-%d')
@@ -66,14 +67,14 @@ def main():
     state = load_state()
     window_id = get_current_window_id()
     
-    # Проверка лимита: один пост за цикл
+    # ПРОВЕРКА ЛИМИТА: если в этом окне (утро/вечер) уже был успех, выходим сразу
     if window_id and state.get('last_success_window') == window_id:
-        log(f"В окне {window_id} пост уже был опубликован. Пропускаем.")
+        log(f"В окне {window_id} контент уже опубликован. Спим до следующего цикла.")
         return
 
     any_new_post = False
     
-    # Проверка YouTube
+    # 1. Проверка YouTube
     if YT_CHANNEL_IDS_STR:
         for channel_id in YT_CHANNEL_IDS_STR.split(','):
             channel_id = channel_id.strip()
@@ -86,13 +87,14 @@ def main():
                 
                 if chan_state.get('last_id') != v_id:
                     if state.get('initialized'):
-                        caption = f"НОВОЕ ВИДЕО ТРЭШ ИСТОРИИ УЖЕ НА ЮТУБ\n\n<a href='{v_url}'>{v_title}</a>"
+                        caption = f"<b>НОВОЕ ВИДЕО ТРЭШ ИСТОРИИ УЖЕ НА ЮТУБ</b>\n\n<a href='{v_url}'>{v_title}</a>"
                         photo = f"https://img.youtube.com/vi/{v_id}/sddefault.jpg"
                         if send_telegram_notification(caption, photo):
                             any_new_post = True
                     state['youtube'][channel_id] = {"last_id": v_id, "title": v_title}
+                    if any_new_post: break # Нашли один — достаточно
 
-    # Проверка Boosty (если еще не нашли пост на YouTube в этом цикле)
+    # 2. Проверка Boosty (если на YT ничего не нашли в этом проходе)
     if not any_new_post:
         log("Проверка Boosty...")
         try:
@@ -110,17 +112,17 @@ def main():
 
                 if title and state['boosty'].get('last_id') != fingerprint:
                     if state.get('initialized'):
-                        caption = f"НОВОЕ ВИДЕО ТРЭШ ИСТОРИИ УЖЕ НА БУСТИ\n\n<a href='{link}'>{title}</a>"
+                        caption = f"<b>НОВОЕ ВИДЕО ТРЭШ ИСТОРИИ УЖЕ НА БУСТИ</b>\n\n<a href='{link}'>{title}</a>"
                         if send_telegram_notification(caption, image):
                             any_new_post = True
                     state['boosty']['last_id'] = fingerprint
         except Exception as e:
             log(f"Boosty error: {e}")
 
-    # Если нашли и опубликовали пост — помечаем окно как завершенное
+    # ФИНАЛИЗАЦИЯ: если был пост, закрываем это окно
     if any_new_post and window_id:
         state['last_success_window'] = window_id
-        log(f"Успех! Окно {window_id} закрыто для новых постов.")
+        log(f"Успех! Окно {window_id} помечено как выполненное.")
 
     if not state.get('initialized'):
         state['initialized'] = True
