@@ -2,15 +2,18 @@ name: Content Check Bot
 
 on:
   schedule:
-    # Запуск каждые 20 минут
-    - cron: '*/20 * * * *'
-  workflow_dispatch: # Позволяет запускать вручную
+    # GitHub использует время UTC (Хельсинки/Киев UTC+2)
+    # Окно 1: 11:00 - 13:00 Local -> 09:00 - 10:59 UTC
+    - cron: '*/5 9,10 * * *'
+    # Окно 2: 19:00 - 20:00 Local -> 17:00 - 17:59 UTC
+    - cron: '*/5 17 * * *'
+  workflow_dispatch: # Ручной запуск доступен всегда
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Нужно для обновления state.json
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
