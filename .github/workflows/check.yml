@@ -2,12 +2,24 @@ name: Content Check Bot
 
 on:
   schedule:
-    # GitHub использует UTC. Для Хельсинки/Киева (UTC+2):
-    # Окно 1: 11:00 - 13:00 -> 09:00 - 10:59 UTC (каждые 5 мин)
-    - cron: '*/5 9,10 * * *'
-    # Окно 2: 19:00 - 20:00 -> 17:00 - 17:59 UTC (каждые 5 мин)
-    - cron: '*/5 17 * * *'
-  workflow_dispatch: # Ручной запуск доступен всегда
+    # Хельсинки/Киев/Рига (UTC+2). Переводим в UTC (-2 часа):
+    # Окно 1 (11:15 - 13:15): 
+    # - 09:15-09:55 UTC (каждые 5 мин): '15,20,25,30,35,40,45,50,55 9 * * *'
+    # - 10:00-11:00 UTC (каждые 5 мин): '*/5 10 * * *'
+    # - 11:00-11:15 UTC (завершение): '0,5,10,15 11 * * *'
+    - cron: '15,20,25,30,35,40,45,50,55 9 * * *'
+    - cron: '*/5 10 * * *'
+    - cron: '0,5,10,15 11 * * *'
+    
+    # Окно 2 (19:15 - 21:15):
+    # - 17:15-17:55 UTC: '15,20,25,30,35,40,45,50,55 17 * * *'
+    # - 18:00-19:00 UTC: '*/5 18 * * *'
+    # - 19:00-19:15 UTC: '0,5,10,15 19 * * *'
+    - cron: '15,20,25,30,35,40,45,50,55 17 * * *'
+    - cron: '*/5 18 * * *'
+    - cron: '0,5,10,15 19 * * *'
+    
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -17,16 +29,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Install dependencies
-        run: |
-          pip install requests feedparser beautifulsoup4 lxml
-
+        run: pip install requests feedparser beautifulsoup4 lxml
       - name: Execute Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -34,7 +42,6 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
         run: python bot.py
-
       - name: Commit and Push state change
         run: |
           git config --global user.name "github-actions[bot]"
