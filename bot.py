@@ -17,19 +17,19 @@ def log(message):
     print(f"[LOG] {message}")
 
 def get_current_window_id():
-    """Определяет ID текущего окна (UTC+2) с учетом минут"""
+    """Определяет ID текущего окна (UTC+2) — ровно 60 минут"""
     now_utc = datetime.utcnow()
     now_local = now_utc + timedelta(hours=2)
     hour = now_local.hour
     minute = now_local.minute
     date_str = now_local.strftime('%Y-%m-%d')
     
-    # Окно 1: 11:15 — 13:15
-    if (hour == 11 and minute >= 15) or (hour == 12) or (hour == 13 and minute <= 15):
+    # Окно 1: 11:15 — 12:15
+    if (hour == 11 and minute >= 15) or (hour == 12 and minute <= 15):
         return f"morning_{date_str}"
     
-    # Окно 2: 19:15 — 21:15
-    if (hour == 19 and minute >= 15) or (hour == 20) or (hour == 21 and minute <= 15):
+    # Окно 2: 19:15 — 20:15
+    if (hour == 19 and minute >= 15) or (hour == 20 and minute <= 15):
         return f"evening_{date_str}"
         
     return None
@@ -65,21 +65,25 @@ def send_telegram_notification(caption, photo_url=None):
     except: return False
 
 def main():
-    state = load_state()
     window_id = get_current_window_id()
     
-    # Если в текущем окне уже был успех — выходим мгновенно
-    if window_id and state.get('last_success_window') == window_id:
-        log(f"Цикл {window_id} уже завершен публикацией. Ожидаем следующее окно.")
+    if not window_id:
+        log("SLEEP: Вне рабочих окон (11:15-12:15 или 19:15-20:15).")
         return
 
+    state = load_state()
+    
+    if state.get('last_success_window') == window_id:
+        log(f"DONE: В окне {window_id} уже была публикация.")
+        return
+
+    log(f"RUN: Проверка контента в окне {window_id}...")
     any_new_post = False
     
-    # YouTube Check
+    # YouTube
     if YT_CHANNEL_IDS_STR:
         for channel_id in YT_CHANNEL_IDS_STR.split(','):
             channel_id = channel_id.strip()
-            log(f"Проверка YouTube: {channel_id}")
             feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")
             if feed.entries:
                 entry = feed.entries[0]
@@ -95,9 +99,8 @@ def main():
                     state['youtube'][channel_id] = {"last_id": v_id, "title": v_title}
                     if any_new_post: break
 
-    # Boosty Check (только если не нашли на YouTube)
+    # Boosty
     if not any_new_post:
-        log("Проверка Boosty...")
         try:
             r = requests.get(BOOSTY_BASE_URL, timeout=15)
             if r.status_code == 200:
@@ -117,13 +120,11 @@ def main():
                         if send_telegram_notification(caption, image):
                             any_new_post = True
                     state['boosty']['last_id'] = fingerprint
-        except Exception as e:
-            log(f"Boosty error: {e}")
+        except: pass
 
-    # Блокировка окна после успеха
-    if any_new_post and window_id:
+    if any_new_post:
         state['last_success_window'] = window_id
-        log(f"Успех! Окно {window_id} заблокировано до следующего цикла.")
+        log(f"SUCCESS: Пост опубликован, окно {window_id} закрыто.")
 
     if not state.get('initialized'):
         state['initialized'] = True
