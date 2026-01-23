@@ -17,17 +17,21 @@ def log(message):
     print(f"[LOG] {message}")
 
 def get_current_window_id():
-    """Определяет ID текущего временного окна (UTC+2)"""
+    """Определяет ID текущего окна (UTC+2) с учетом минут"""
     now_utc = datetime.utcnow()
-    # Хельсинки/Киев/Рига (UTC+2)
     now_local = now_utc + timedelta(hours=2)
     hour = now_local.hour
+    minute = now_local.minute
     date_str = now_local.strftime('%Y-%m-%d')
     
-    if 11 <= hour < 13:
+    # Окно 1: 11:15 — 13:15
+    if (hour == 11 and minute >= 15) or (hour == 12) or (hour == 13 and minute <= 15):
         return f"morning_{date_str}"
-    elif 19 <= hour < 20:
+    
+    # Окно 2: 19:15 — 21:15
+    if (hour == 19 and minute >= 15) or (hour == 20) or (hour == 21 and minute <= 15):
         return f"evening_{date_str}"
+        
     return None
 
 def load_state():
@@ -35,8 +39,7 @@ def load_state():
         try:
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
-            log(f"Ошибка чтения state.json: {e}")
+        except: pass
     return {"initialized": False, "youtube": {}, "boosty": {}, "last_success_window": None}
 
 def save_state(state):
@@ -44,9 +47,7 @@ def save_state(state):
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 def send_telegram_notification(caption, photo_url=None):
-    if not TOKEN or not CHAT_ID:
-        log("ОШИБКА: Секреты не настроены!")
-        return False
+    if not TOKEN or not CHAT_ID: return False
     
     if photo_url:
         url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
@@ -67,14 +68,14 @@ def main():
     state = load_state()
     window_id = get_current_window_id()
     
-    # ПРОВЕРКА ЛИМИТА: если в этом окне (утро/вечер) уже был успех, выходим сразу
+    # Если в текущем окне уже был успех — выходим мгновенно
     if window_id and state.get('last_success_window') == window_id:
-        log(f"В окне {window_id} контент уже опубликован. Спим до следующего цикла.")
+        log(f"Цикл {window_id} уже завершен публикацией. Ожидаем следующее окно.")
         return
 
     any_new_post = False
     
-    # 1. Проверка YouTube
+    # YouTube Check
     if YT_CHANNEL_IDS_STR:
         for channel_id in YT_CHANNEL_IDS_STR.split(','):
             channel_id = channel_id.strip()
@@ -92,9 +93,9 @@ def main():
                         if send_telegram_notification(caption, photo):
                             any_new_post = True
                     state['youtube'][channel_id] = {"last_id": v_id, "title": v_title}
-                    if any_new_post: break # Нашли один — достаточно
+                    if any_new_post: break
 
-    # 2. Проверка Boosty (если на YT ничего не нашли в этом проходе)
+    # Boosty Check (только если не нашли на YouTube)
     if not any_new_post:
         log("Проверка Boosty...")
         try:
@@ -119,10 +120,10 @@ def main():
         except Exception as e:
             log(f"Boosty error: {e}")
 
-    # ФИНАЛИЗАЦИЯ: если был пост, закрываем это окно
+    # Блокировка окна после успеха
     if any_new_post and window_id:
         state['last_success_window'] = window_id
-        log(f"Успех! Окно {window_id} помечено как выполненное.")
+        log(f"Успех! Окно {window_id} заблокировано до следующего цикла.")
 
     if not state.get('initialized'):
         state['initialized'] = True
